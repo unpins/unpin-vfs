@@ -2,16 +2,17 @@
 
 [![CI](https://github.com/unpins/unpin-vfs/actions/workflows/ci.yml/badge.svg)](https://github.com/unpins/unpin-vfs/actions)
 
-One reusable virtual-filesystem core for unpin single-binaries that embed a
-runtime tree — perl/biber `@INC`, python stdlib, tcc sysroot, vim runtime — as a
-ZIP blob compiled into the executable. A matched path under the mount root
-(`/zip/` by default) is inflated on demand and handed to the program as a real,
-seekable fd; everything else falls through to libc untouched.
+One reusable virtual-filesystem core for single self-contained binaries that
+embed a runtime tree — an interpreter's library path, a compiler's sysroot, an
+editor's runtime files — as a ZIP blob compiled into the executable. A matched
+path under the mount root (`/zip/` by default) is inflated on demand and handed
+to the program as a real, seekable fd; everything else falls through to libc
+untouched.
 
-This code began copy-pasted across the single-binary packages that embed a tree.
-**vim** and **gvim** now build on this consolidated core; `perl`, `biber`,
-`python`, and `tcc` still carry their own copy and are being migrated onto it. It
-also teaches the container **Zstandard** while staying a standard `.zip`.
+The program needs no source changes: its file calls are intercepted
+transparently — `ld --wrap` on Linux, symbol redefinition on macOS, a path
+marker on Windows. The container is a structurally standard `.zip`, optionally
+taught **Zstandard** for a smaller blob.
 
 ## Container format
 
@@ -29,8 +30,8 @@ lacks the dict for. Omit `--dict` for fully interoperable output.
 
 ### Validated results
 
-Measured end-to-end on the real 65 MB biber `@INC` blob (4867 files), packed then
-read back with **byte-for-byte** comparison against the originals (0 mismatches):
+Measured end-to-end on a real 65 MB runtime tree (4867 files), packed then read
+back with **byte-for-byte** comparison against the originals (0 mismatches):
 
 | blob | size | vs current `zip -9` (17.43 MB) |
 |---|---:|---:|
@@ -38,21 +39,19 @@ read back with **byte-for-byte** comparison against the originals (0 mismatches)
 | zstd-in-zip, no dict (interoperable) | 15.97 MB | −8.4% |
 | zstd-in-zip + shared dict | 12.79 MB | −26.6% |
 
-(Independent of compression: ~half of a perl-family blob is POD/`.pod`
-documentation — stripping it is a larger, orthogonal lever, deferred.)
-
 ## Layout
 
 ```
-src/miniz.{c,h}     vendored miniz, patched for zstd method 93 (read + write)
-src/unpin_zstd.{c,h} thin zstd shim — the ONLY file that includes <zstd.h>
-src/vfs.{c,h}       the VFS core: open/stat/lstat/access, 3 OS backends, dict auto-load
-                    + opendir/readdir/closedir/fopen superset under -DUNPIN_VFS_DIRS
+src/miniz.{c,h}      vendored miniz, patched for zstd method 93 (read + write)
+src/zstddeclib.c     vendored zstd decompress-only amalgamation (-DUNPIN_ZSTD_VENDORED)
+src/unpin_zstd.{c,h} thin zstd shim -- the ONLY TU that pulls in zstd (libzstd or the above)
+src/vfs.{c,h}        the VFS core: open/stat/lstat/access, 3 OS backends, dict auto-load
+                     + opendir/readdir/closedir/fopen superset under -DUNPIN_VFS_DIRS
 tools/unpin-vfs-pack.c  build-time packer: directory tree -> zstd-in-zip blob
-test/roundtrip.c    in-memory write+read validation (mixed zstd/deflate/stored + dict)
+test/roundtrip.c     in-memory write+read validation (mixed zstd/deflate/stored + dict)
 test/unpack-verify.c  read a blob back, CRC-check or byte-compare to a source tree
 test/dir-fopen.c + dir-test.sh  integration test for the DIRS superset (links --wrap)
-Makefile            local dev build (links nix libzstd)
+Makefile             local dev build (check / dircheck / vendorcheck / e2e)
 ```
 
 ### The miniz patch (small, additive)
@@ -95,30 +94,13 @@ directly (same core).
 
 ### Runtime zstd, dependency-free
 
-The dev `Makefile` links nix's `libzstd`. The shipped single-binary instead
-vendors zstd's **decompress-only** single file (`zstddeclib.c`, generated from
-zstd's `build/single_file_libs`) so there is no runtime closure — `unpin_zstd.c`
-is the only thing that would change (its `<zstd.h>` calls map 1:1). The packer
-keeps full `libzstd` (build host only).
+The dev `Makefile` and the build-time packer link the system `libzstd` (they
+need to compress). The shipped single-binary instead builds `unpin_zstd.c` with
+`-DUNPIN_ZSTD_VENDORED`, which compiles the vendored `src/zstddeclib.c` — zstd's
+**decompress-only** amalgamation (`combine.py` over zstd 1.5.7's
+`build/single_file_libs`) — straight into the one zstd TU. The runtime then
+carries zstd with no shared-object closure, and the compress helpers compile out.
 
-## Status
-
-- ✅ zstd-in-zip read + write through patched miniz — **validated** (`make check`),
-  cross-checked against `unzip`/`zipinfo`/python `zipfile`.
-- ✅ End-to-end pack → read-back byte-exact on the real biber tree, dict and no-dict
-  (`make e2e DIR=… [DICT=…]`).
-- ✅ `vfs.c` core (open/stat/lstat/access, Linux/macOS/Windows, dict auto-load) —
-  compiles with and without zstd; generalised from the proven `vfs_miniz.c`.
-- ✅ `readdir`/`opendir`/`closedir` + `fopen` + dir-aware `stat` superset
-  (`-DUNPIN_VFS_DIRS`). Validated by `make dircheck` (packs a tree, links `--wrap`,
-  checks listing / dir-stat / fopen / real-path fall-through).
-- ✅ Windows marker mode (`-DUNPIN_VFS_WIN_MARKER`): for consumers with no `win32_*`
-  layer to `--wrap` that canonicalise virtual paths to `C:\<marker>\…`, `is_virtual`
-  matches the marker anywhere and the explicit `unpin_vfs_*` API materialises to a
-  temp file and serves it from the CRT.
-- ✅ **vim and gvim build on this core** — they dropped their bespoke `unpins_vfs.c`
-  + `mch_*` macro hooks for this `-DUNPIN_VFS_DIRS` build (Linux `--wrap`, macOS
-  `objcopy --redefine-sym`, Windows marker mode), validated across the full release
-  matrix (6 Linux + macOS + Windows).
-- ⬜ Vendor `zstddeclib.c` for a dependency-free runtime; `nix-lib` glue; migrate the
-  remaining copies (`perl`, `biber`, `python`, `tcc`).
+`make vendorcheck` exercises exactly this path: it packs a tree (with a shared
+dict) using `libzstd`, then reads it back with a verifier built
+`-DUNPIN_ZSTD_VENDORED` that links no `libzstd` at all.

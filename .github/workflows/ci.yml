@@ -17,3 +17,5 @@ jobs:
         run: make check
       - name: Directory superset (opendir/readdir/fopen + --wrap fall-through)
         run: make dircheck
+      - name: Vendored zstddeclib.c decode (shipped runtime path, no libzstd link)
+        run: make vendorcheck

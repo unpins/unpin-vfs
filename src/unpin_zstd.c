@@ -1,15 +1,29 @@
-/* unpin_zstd.c -- libzstd-backed implementation of the unpin_zstd.h shim.
+/* unpin_zstd.c -- the one translation unit that pulls in zstd.
  *
- * This file is the ONE place that includes <zstd.h>. The runtime needs only
- * decompression; unpin_zstd_compress/bound exist for the build-time packer and
- * can be compiled out (UNPIN_ZSTD_NO_COMPRESS) when linking the shipped binary.
+ * Two ways to supply zstd, chosen at compile time:
+ *
+ *   default            link the system libzstd (`#include <zstd.h>`). Used by the
+ *                      dev build and the build-time packer, which need to compress.
+ *   -DUNPIN_ZSTD_VENDORED
+ *                      compile zstd's decompress-only amalgamation (zstddeclib.c)
+ *                      straight into this TU, so the shipped single-binary carries
+ *                      zstd with no runtime closure. Decompress-only, so the
+ *                      compress helpers are forced off.
+ *
+ * Either way miniz only ever calls the four unpin_zstd_* functions below; the
+ * choice never reaches the container reader.
  *
  * Contexts are created lazily and reused; they are not thread-safe, which
  * matches the VFS (single-threaded init/open path). The shared dictionary is a
  * raw zstd dictionary (from `zstd --train`), applied via the *_usingDict APIs.
  */
 #include "unpin_zstd.h"
-#include <zstd.h>
+#ifdef UNPIN_ZSTD_VENDORED
+#  define UNPIN_ZSTD_NO_COMPRESS          /* the amalgamation decodes only */
+#  include "zstddeclib.c"                 /* brings in zstd.h + the impl, one TU */
+#else
+#  include <zstd.h>
+#endif
 
 static const void *g_dict;
 static size_t g_dict_len;

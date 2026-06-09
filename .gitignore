@@ -1,5 +1,6 @@
 /unpin-vfs-pack
 /unpack-verify
+/unpack-verify-vendored
 /roundtrip
 *.o
 *.zip
