@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zstd (dev Makefile links libzstd)
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev
+      - name: In-memory round-trip (zstd/deflate/stored + dict)
+        run: make check
+      - name: Directory superset (opendir/readdir/fopen + --wrap fall-through)
+        run: make dircheck

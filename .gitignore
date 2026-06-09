@@ -1,0 +1,5 @@
+/unpin-vfs-pack
+/unpack-verify
+/roundtrip
+*.o
+*.zip
