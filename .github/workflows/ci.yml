@@ -17,5 +17,7 @@ jobs:
         run: make check
       - name: Directory superset (opendir/readdir/fopen + --wrap fall-through)
         run: make dircheck
+      - name: Self-EOF mode (ZIP appended to the binary, unpin/* hidden)
+        run: make selfcheck
       - name: Vendored zstddeclib.c decode (shipped runtime path, no libzstd link)
         run: make vendorcheck

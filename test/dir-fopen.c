@@ -95,6 +95,21 @@ int main(void) {
     CHECK(unpin_vfs_fopen("/zip/a/b/file1.txt", "w") == NULL,
           "fopen write-mode on virtual path -> NULL (EROFS)");
 
+#ifdef UNPIN_VFS_SELF
+    printf("== self-EOF: unpin/* namespaces hidden ==\n");
+    /* self-test.sh packs unpin/aliases + unpin/man/vfs-test.1 into the same
+     * container; the VFS must pretend they don't exist (they belong to unpin's
+     * metadata reader), including in the mount-root listing asserted above. */
+    CHECK(unpin_vfs_stat("/zip/unpin", &st) == -1, "stat /zip/unpin -> -1");
+    CHECK(unpin_vfs_stat("/zip/unpin/aliases", &st) == -1,
+          "stat /zip/unpin/aliases -> -1");
+    CHECK(unpin_vfs_opendir("/zip/unpin") == NULL, "opendir /zip/unpin -> NULL");
+    CHECK(unpin_vfs_fopen("/zip/unpin/man/vfs-test.1", "r") == NULL,
+          "fopen /zip/unpin/man/* -> NULL");
+    CHECK(unpin_vfs_open("/zip/.unpin/zdict", O_RDONLY) == -1,
+          "open /zip/.unpin/zdict -> -1");
+#endif
+
     printf("== real-path fall-through ==\n");
     /* a real file the VFS must NOT intercept */
     char tmpl[] = "/tmp/uvfs_realXXXXXX";

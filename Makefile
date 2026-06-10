@@ -33,6 +33,10 @@ check: roundtrip
 dircheck:
 	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/dir-test.sh
 
+# integration test for the self-EOF mode (no blob: ZIP appended to the binary)
+selfcheck:
+	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/self-test.sh
+
 # Validate the shipped runtime path: pack a tree (with a raw shared dict) using
 # the libzstd packer, then read it back with a decode-only verifier built from
 # the VENDORED zstddeclib.c -- no -lzstd, no zstd runtime closure at all.

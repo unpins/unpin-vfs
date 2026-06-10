@@ -4,10 +4,23 @@
 
 One reusable virtual-filesystem core for single self-contained binaries that
 embed a runtime tree — an interpreter's library path, a compiler's sysroot, an
-editor's runtime files — as a ZIP blob compiled into the executable. A matched
+editor's runtime files — as a ZIP carried by the executable. A matched
 path under the mount root (`/zip/` by default) is inflated on demand and handed
 to the program as a real, seekable fd; everything else falls through to libc
 untouched.
+
+The executable carries the ZIP in one of two ways:
+
+- **blob** (default): compiled in as a read-only section (`.incbin` via a
+  `blob.S`), exposed through `<sym>_{start,end}` labels.
+- **self-EOF** (`-DUNPIN_VFS_SELF`): the binary's single unpin metadata
+  container — a ZIP appended at EOF with absolute, file-adjusted offsets
+  (the `unpin-vfs-pack --base` / sfx convention). `unpin_vfs_init()` locates
+  the running executable (`/proc/self/exe`, `_NSGetExecutablePath`,
+  `GetModuleFileNameW`), opens it read-only and serves entries straight from
+  the file — no blob symbols, no relink when only data changes, and the
+  runtime tree shares one ZIP with unpin's `unpin/*` metadata (aliases, man),
+  which the VFS hides from lookups and listings.
 
 The program needs no source changes: its file calls are intercepted
 transparently — `ld --wrap` on Linux, symbol redefinition on macOS, a path
@@ -60,7 +73,8 @@ Makefile             local dev build (check / dircheck / vendorcheck / e2e)
   `-DMINIZ_USE_ZSTD`.
 - Decode branch in `mz_zip_reader_extract_to_mem_no_alloc1`: a method-93 entry is
   one contiguous frame, so it decodes in **one shot** via the shim (no streaming).
-  The VFS always reads an in-memory blob, so the frame is already mapped.
+  The frame is already mapped (blob mode) or read whole from the binary
+  (self-EOF mode) before the shim runs.
 - Writer: `MZ_ZIP_FLAG_ZSTD_DATA` labels caller-supplied pre-compressed bytes as
   method 93 instead of deflate (reuses the existing `MZ_ZIP_FLAG_COMPRESSED_DATA`
   path). The deflate path is untouched — old deflate blobs still read.
@@ -76,6 +90,20 @@ unpin-vfs-pack incblob stage --dict stage.dict      # -> a .zip named "incblob"
 $CC -c blob.S -o incblob.o     # blob.S: .incbin "incblob" between start/end labels
                                # (ELF: _binary_incblob_{start,end}; Mach-O/PE: bare)
 ```
+
+Or self-EOF style (`-DUNPIN_VFS_SELF`, no `blob.S`/`incblob.o`): link first,
+then append a file-adjusted ZIP to the finished binary — `--base` must be the
+binary's byte size so every offset is absolute (`make selfcheck` exercises
+exactly this):
+
+```sh
+unpin-vfs-pack overlay.zip stage --base "$(stat -c %s prog)"
+cat overlay.zip >> prog
+```
+
+In the unpins catalog this append is done by the nix build (the same
+accumulator that embeds `unpin/aliases` and `unpin/man/*`), so the runtime
+tree, aliases and man pages all live in ONE ZIP per binary.
 
 Link time (transparent `--wrap` style — no source edits):
 
