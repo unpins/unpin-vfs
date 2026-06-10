@@ -92,7 +92,11 @@ static FILE *self_open(mz_uint64 *size) {
  * the lookup path.) */
 static int vfs_hidden(const char *key) {
     if (key[0] == '.') key++;
-    return strncmp(key, "unpin", 5) == 0 && (key[5] == '/' || key[5] == '\0');
+    /* Case-insensitive: miniz's locate_file is case-insensitive by default
+     * (flags 0), so "UNPIN/aliases" would otherwise reach the metadata. */
+    for (const char *m = "unpin"; *m; m++, key++)
+        if ((*key | 0x20) != *m) return 0;
+    return *key == '/' || *key == '\0';
 }
 #else /* blob mode */
 /* Blob symbols produced by blob.S (`.incbin`). Linux uses the objcopy-style
@@ -693,7 +697,7 @@ struct dirent *READDIR_FN(DIR *dir) {
     while (d->cursor < n) {
         mz_uint i = d->cursor++;
         mz_uint fl = mz_zip_reader_get_filename(&g_zip, i, name, sizeof name);
-        if (fl <= d->prefix_len + 1) continue;
+        if (fl <= d->prefix_len + 1) continue;  /* fl counts the NUL: skips name <= prefix */
         if (vfs_hidden(name)) continue;  /* keep the unpin namespaces unlisted */
 
         /* Children of the mount root (prefix_len == 0) have no leading

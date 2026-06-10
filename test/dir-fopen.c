@@ -108,6 +108,12 @@ int main(void) {
           "fopen /zip/unpin/man/* -> NULL");
     CHECK(unpin_vfs_open("/zip/.unpin/zdict", O_RDONLY) == -1,
           "open /zip/.unpin/zdict -> -1");
+    /* miniz's locate_file is case-insensitive by default, so the hiding must
+     * be too — "UNPIN/aliases" must not sneak past a case-sensitive guard. */
+    CHECK(unpin_vfs_open("/zip/UNPIN/aliases", O_RDONLY) == -1,
+          "open /zip/UNPIN/aliases (uppercase) -> -1");
+    CHECK(unpin_vfs_stat("/zip/Unpin/man/vfs-test.1", &st) == -1,
+          "stat /zip/Unpin/man/* (mixed case) -> -1");
 #endif
 
     printf("== real-path fall-through ==\n");
