@@ -37,6 +37,11 @@ dircheck:
 selfcheck:
 	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/self-test.sh
 
+# integration test for --carry: rebuild a cosmo APE's tail-ZIP, keeping its
+# entries verbatim while adding our zstd metadata (and dropping .symtab.amd64)
+carrycheck:
+	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/carry-test.sh
+
 # Validate the shipped runtime path: pack a tree (with a raw shared dict) using
 # the libzstd packer, then read it back with a decode-only verifier built from
 # the VENDORED zstddeclib.c -- no -lzstd, no zstd runtime closure at all.
@@ -61,4 +66,4 @@ e2e: unpin-vfs-pack unpack-verify
 clean:
 	rm -f unpin-vfs-pack unpack-verify roundtrip unpack-verify-vendored
 
-.PHONY: all check dircheck vendorcheck e2e clean
+.PHONY: all check dircheck selfcheck carrycheck vendorcheck e2e clean

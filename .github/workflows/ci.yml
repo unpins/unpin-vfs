@@ -19,5 +19,7 @@ jobs:
         run: make dircheck
       - name: Self-EOF mode (ZIP appended to the binary, unpin/* hidden)
         run: make selfcheck
+      - name: Carry an existing tail-ZIP (cosmo /zip/ store) into a zstd repack
+        run: make carrycheck
       - name: Vendored zstddeclib.c decode (shipped runtime path, no libzstd link)
         run: make vendorcheck
