@@ -71,6 +71,14 @@ static FILE *self_open(mz_uint64 *size) {
     uint32_t n = sizeof p;
     if (_NSGetExecutablePath(p, &n) != 0) return NULL;
     FILE *f = fopen(p, "rb");
+#elif defined(__COSMOPOLITAN__)
+    /* Cosmo's /proc/self/exe is synthesised and does NOT include data appended
+     * past the recorded image size (our EOF container is invisible through it).
+     * GetProgramExecutableName() yields the real on-disk path of the running
+     * APE, and fopen() of that reads the whole file — overlay included. */
+    extern char *GetProgramExecutableName(void);
+    const char *cp = GetProgramExecutableName();
+    FILE *f = cp ? fopen(cp, "rb") : NULL;
 #else
     FILE *f = fopen("/proc/self/exe", "rb");
 #endif
@@ -600,8 +608,85 @@ static int anon_fd(const unsigned char *data, size_t len) {
  *     genuine libc directly. No linker-global --wrap → never reroutes another
  *     applet's open: the only binding safe to fold into the unpinbox mega.
  *   --wrap (__wrap_*): a standalone GNU-ld link passes -Wl,--wrap=open,… so
- *     __wrap_* intercept and __real_* are the genuine libc. NOT mega-safe. */
-#if defined(__APPLE__) || defined(UNPIN_VFS_NOWRAP)
+ *     __wrap_* intercept and __real_* are the genuine libc. NOT mega-safe.
+ *   dlsym (-DUNPIN_VFS_DLSYM, macOS only): this TU DEFINES the libc entry points
+ *     themselves, so a definition in a linked object shadows the libSystem
+ *     import for every in-binary reference — no rename pass on the consumer at
+ *     all. The genuine entry points come back through dlsym(RTLD_NEXT, …). For a
+ *     consumer with no IR-rewrite pass to drive the rename binding (zsh). Like
+ *     --wrap it is linker-global, so NOT mega-safe. */
+#if defined(UNPIN_VFS_DLSYM)
+#include <dlfcn.h>
+#include <unistd.h>
+#include <sys/stat.h>
+/* x86_64 carries the $INODE64 ABI suffix on the inode-bearing calls; the SDK
+ * headers asm-rename OUR definitions to the matching symbol automatically, so
+ * only the dlsym lookups have to spell the suffix. */
+#if defined(__x86_64__)
+#  define UVFS_INO64 "$INODE64"
+#else
+#  define UVFS_INO64 ""
+#endif
+static int real_open(const char *p, int flags, ...) {
+    typedef int (*fn_t)(const char *, int, ...);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "open");
+    va_list ap; va_start(ap, flags); int mode = va_arg(ap, int); va_end(ap);
+    return fn(p, flags, mode);
+}
+static int real_stat(const char *p, struct stat *st) {
+    typedef int (*fn_t)(const char *, struct stat *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "stat" UVFS_INO64);
+    return fn(p, st);
+}
+static int real_lstat(const char *p, struct stat *st) {
+    typedef int (*fn_t)(const char *, struct stat *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "lstat" UVFS_INO64);
+    return fn(p, st);
+}
+static int real_access(const char *p, int mode) {
+    typedef int (*fn_t)(const char *, int);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "access");
+    return fn(p, mode);
+}
+#  define OPEN_FN    open
+#  define STAT_FN    stat
+#  define LSTAT_FN   lstat
+#  define ACCESS_FN  access
+#  define REAL_OPEN(p, ...)   real_open((p), __VA_ARGS__)
+#  define REAL_STAT(p, s)     real_stat((p), (s))
+#  define REAL_LSTAT(p, s)    real_lstat((p), (s))
+#  define REAL_ACCESS(p, m)   real_access((p), (m))
+#  ifdef UNPIN_VFS_DIRS
+static DIR *real_opendir(const char *p) {
+    typedef DIR *(*fn_t)(const char *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "opendir" UVFS_INO64);
+    return fn(p);
+}
+static struct dirent *real_readdir(DIR *d) {
+    typedef struct dirent *(*fn_t)(DIR *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "readdir" UVFS_INO64);
+    return fn(d);
+}
+static int real_closedir(DIR *d) {
+    typedef int (*fn_t)(DIR *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "closedir");
+    return fn(d);
+}
+static FILE *real_fopen(const char *p, const char *m) {
+    typedef FILE *(*fn_t)(const char *, const char *);
+    static fn_t fn; if (!fn) fn = (fn_t)dlsym(RTLD_NEXT, "fopen");
+    return fn(p, m);
+}
+#    define OPENDIR_FN  opendir
+#    define READDIR_FN  readdir
+#    define CLOSEDIR_FN closedir
+#    define FOPEN_FN    fopen
+#    define REAL_OPENDIR(p)   real_opendir((p))
+#    define REAL_READDIR(d)   real_readdir((d))
+#    define REAL_CLOSEDIR(d)  real_closedir((d))
+#    define REAL_FOPEN(p, m)  real_fopen((p), (m))
+#  endif
+#elif defined(__APPLE__) || defined(UNPIN_VFS_NOWRAP)
 #  define OPEN_FN    unpinvfs_open
 #  define STAT_FN    unpinvfs_stat
 #  define LSTAT_FN   unpinvfs_lstat
