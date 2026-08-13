@@ -64,7 +64,10 @@ tools/unpin-vfs-pack.c  build-time packer: directory tree -> zstd-in-zip blob
 test/roundtrip.c     in-memory write+read validation (mixed zstd/deflate/stored + dict)
 test/unpack-verify.c  read a blob back, CRC-check or byte-compare to a source tree
 test/dir-fopen.c + dir-test.sh  integration test for the DIRS superset (links --wrap)
-Makefile             local dev build (check / dircheck / vendorcheck / e2e)
+test/binding-libc.c + binding-test.sh  integration test for the three bindings:
+                     calls the BARE libc names, so only the binding puts them in
+                     the VFS (every other test calls unpin_vfs_* directly)
+Makefile             local dev build (check / dircheck / bindcheck / vendorcheck / e2e)
 ```
 
 ### The miniz patch (small, additive)
@@ -114,6 +117,8 @@ $CC ... vfs.o miniz.o unpin_zstd.o incblob.o \
 #   and compile vfs.c with -DUNPIN_WRAP_TIME64
 # macOS: no --wrap; objcopy --redefine-sym _open=_unpinvfs_open (etc.) on the
 #   program's archives, leaving this TU calling the real libc.
+# macOS without a rename pass (zsh): compile vfs.c -DUNPIN_VFS_DLSYM and link
+#   it in -- it DEFINES open/stat/... and reaches the real ones via RTLD_NEXT.
 # Windows: --wrap=win32_open,win32_stat,win32_lstat,win32_access (mingw).
 ```
 

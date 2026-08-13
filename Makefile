@@ -33,6 +33,12 @@ check: roundtrip
 dircheck:
 	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/dir-test.sh
 
+# integration test for the three bindings (--wrap / rename / dlsym): the other
+# tests call the unpin_vfs_* API, so only this one proves a consumer's own libc
+# calls actually land in the VFS
+bindcheck:
+	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/binding-test.sh
+
 # integration test for the self-EOF mode (no blob: ZIP appended to the binary)
 selfcheck:
 	ZSTD_CFLAGS="$(ZSTD_CFLAGS)" ZSTD_LIBS="$(ZSTD_LIBS)" CC="$(CC)" test/self-test.sh
